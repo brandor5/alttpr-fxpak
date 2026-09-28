@@ -1,0 +1,26 @@
+# Copy to ~/.config/alttpr-fxpak/config.toml
+
+# Your own vanilla Japanese 1.0 dump of A Link to the Past. Required.
+# 1,048,576 bytes unheadered; a 512-byte copier header is stripped for you.
+base_rom = "~/roms/alttp-jp10.sfc"
+
+# Where built ROMs and their metadata land.
+# out_dir = "~/Games/alttpr"
+
+# SNI's send_file. The default matches the snes-ansible install.
+# send_file = "~/.local/opt/sni/current/send_file"
+
+[cosmetics]
+# Applied to every seed. Command-line flags override these for one run.
+heart_speed = "half"        # off, quarter, half, normal, double
+heart_color = "red"         # red, blue, green, yellow
+menu_speed = "normal"       # slow, normal, fast, instant
+music = true                # false to silence the music, e.g. for MSU-1
+reduce_flashing = false
+msu1_resume = true
+
+# A sprite name from alttpr.com, or a path to a .zspr file.
+# sprite = "Purple Chest"
+
+# Leave unset to respect whatever the seed's own allow_quickswap decided.
+# quickswap = true
