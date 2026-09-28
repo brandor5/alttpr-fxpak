@@ -58,7 +58,7 @@ alttpr-fxpak --preset crosskeys
 alttpr-fxpak --set world_state=inverted --set goal=pedestal
 alttpr-fxpak --hash 9MQ9gBKAMD                  # build someone else's seed
 alttpr-fxpak --race                             # no spoiler log, flagged as a race
-alttpr-fxpak --no-send                          # build only, leave the cart alone
+alttpr-fxpak --dry-run                          # build only, leave the cart alone
 alttpr-fxpak --list-presets                     # presets and every valid --set value
 ```
 
@@ -82,6 +82,24 @@ Set the ones you always want in `config.toml` and forget about them; the flags
 override the config for a single run.
 
 `--no-music` is the one to use with an MSU-1 soundtrack on the cart.
+
+### Dry runs
+
+`--dry-run` stops after the ROM is written and prints the `send_file` command
+it would have run, so you can send it later or inspect the ROM first:
+
+```console
+$ alttpr-fxpak --dry-run
+/home/you/Games/alttpr/alttpr-JG8k3oAxyB.sfc
+permalink: https://alttpr.com/h/JG8k3oAxyB
+file select code: Ice Rod, Book, Moon Pearl, Lamp, Ice Rod
+
+dry run: built but not sent. Send it yourself with:
+  /home/you/.local/opt/sni/current/send_file /home/you/Games/alttpr/alttpr-JG8k3oAxyB.sfc
+```
+
+The seed is still rolled on alttpr.com and the ROM is still written — the cart
+is the only thing left alone. `--no-send` is kept as an alias.
 
 ## Output
 

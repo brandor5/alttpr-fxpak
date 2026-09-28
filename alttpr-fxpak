@@ -504,6 +504,7 @@ def parse_args(argv=None):
   alttpr-fxpak --set world_state=inverted --set goal=pedestal
   alttpr-fxpak --hash 9MQ9gBKAMD            build and play an existing seed
   alttpr-fxpak --race --spoilers off        no spoiler log, marked as a race
+  alttpr-fxpak --dry-run                    build the ROM without touching the cart
   alttpr-fxpak --list-presets               show what the site offers
 """,
     )
@@ -520,7 +521,8 @@ def parse_args(argv=None):
     parser.add_argument("--base-rom", type=Path, help="vanilla JP 1.0 ROM")
     parser.add_argument("--out-dir", type=Path, help=f"where to write ROMs (default: {DEFAULT_OUT_DIR})")
     parser.add_argument("--send-file", type=Path, help=f"SNI's send_file (default: {DEFAULT_SEND_FILE})")
-    parser.add_argument("--no-send", action="store_true", help="build the ROM but do not touch the cart")
+    parser.add_argument("--dry-run", "--no-send", action="store_true", dest="dry_run",
+                        help="build the ROM and stop, leaving the cart alone")
     parser.add_argument("--save-spoiler", action="store_true", help="also write the full spoiler log")
 
     cosmetic = parser.add_argument_group("cosmetics")
@@ -608,7 +610,9 @@ def main(argv=None) -> int:
     print(f"permalink: {meta['permalink']}")
     print("file select code: " + ", ".join(code))
 
-    if args.no_send:
+    if args.dry_run:
+        print("\ndry run: built but not sent. Send it yourself with:", file=sys.stderr)
+        print(f"  {send_file} {rom_path}", file=sys.stderr)
         return 0
     print("\nsending to the FXPak Pro ...", file=sys.stderr)
     send_to_cart(send_file, rom_path)
