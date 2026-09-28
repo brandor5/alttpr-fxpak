@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+
+# Never commit a base ROM or a built seed.
+*.sfc
+*.smc
+*.zspr

@@ -1,0 +1,625 @@
+#!/usr/bin/env python3
+"""Roll an ALTTP randomizer seed on alttpr.com, build the ROM, send it to the
+FXPak Pro through SNI.
+
+The site never serves a playable ROM: it returns a BPS patch that turns a
+vanilla JP 1.0 cartridge dump into the randomizer base, plus a list of byte
+edits that make that base into your particular seed. This script does both
+steps locally, applies cosmetics, fixes the checksum, and hands the result to
+SNI's send_file, which copies it to the cart and boots it.
+
+You supply the vanilla ROM. It is verified by CRC32 against the one the patch
+was built for, so a wrong or headered dump is caught before anything is sent.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import shutil
+import struct
+import subprocess
+import sys
+import urllib.error
+import urllib.request
+import zlib
+from pathlib import Path
+
+SITE = "https://alttpr.com"
+USER_AGENT = "alttpr-fxpak/1.0 (+https://github.com/alttpo/sni)"
+
+XDG_CONFIG = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
+XDG_CACHE = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache")
+CONFIG_FILE = XDG_CONFIG / "alttpr-fxpak" / "config.toml"
+CACHE_DIR = XDG_CACHE / "alttpr-fxpak"
+
+DEFAULT_OUT_DIR = Path.home() / "Games" / "alttpr"
+DEFAULT_SEND_FILE = Path.home() / ".local" / "opt" / "sni" / "current" / "send_file"
+
+
+class Failure(Exception):
+    """Anything the user can act on. Printed without a traceback."""
+
+
+# --------------------------------------------------------------------------
+# BPS patching
+#
+# beat's patch format: a header, a stream of copy/read actions, and three
+# CRC32s. Implemented here rather than pulled from PyPI so the script stays
+# stdlib-only.
+# --------------------------------------------------------------------------
+
+def _bps_number(data: bytes, pos: int) -> tuple[int, int]:
+    """Decode one BPS variable-width number. Returns (value, new position)."""
+    result, shift = 0, 1
+    while True:
+        byte = data[pos]
+        pos += 1
+        result += (byte & 0x7F) * shift
+        if byte & 0x80:
+            return result, pos
+        shift <<= 7
+        result += shift
+
+
+def apply_bps(patch: bytes, source: bytes) -> bytearray:
+    if patch[:4] != b"BPS1":
+        raise Failure("downloaded base patch is not a BPS file")
+    if len(patch) < 16:
+        raise Failure("downloaded base patch is truncated")
+
+    src_crc, tgt_crc, patch_crc = struct.unpack("<III", patch[-12:])
+    if zlib.crc32(patch[:-4]) != patch_crc:
+        raise Failure("downloaded base patch is corrupt (bad checksum)")
+
+    pos = 4
+    src_size, pos = _bps_number(patch, pos)
+    tgt_size, pos = _bps_number(patch, pos)
+    meta_size, pos = _bps_number(patch, pos)
+    pos += meta_size
+
+    if len(source) != src_size:
+        raise Failure(
+            f"base ROM is {len(source):,} bytes, the patch expects {src_size:,}.\n"
+            "It should be an unheadered Japanese 1.0 dump of A Link to the Past."
+        )
+    if zlib.crc32(source) != src_crc:
+        raise Failure(
+            f"base ROM has CRC32 {zlib.crc32(source):08x}, the patch expects {src_crc:08x}.\n"
+            "It should be the Japanese 1.0 release, not a US or 1.2 dump."
+        )
+
+    target = bytearray(tgt_size)
+    out = src_rel = tgt_rel = 0
+    end = len(patch) - 12
+
+    while pos < end:
+        command, pos = _bps_number(patch, pos)
+        action, length = command & 3, (command >> 2) + 1
+
+        if action == 0:  # SourceRead: same offset in the source
+            target[out:out + length] = source[out:out + length]
+            out += length
+        elif action == 1:  # TargetRead: literal bytes from the patch
+            target[out:out + length] = patch[pos:pos + length]
+            pos += length
+            out += length
+        elif action == 2:  # SourceCopy: seek in the source, then copy
+            raw, pos = _bps_number(patch, pos)
+            src_rel += -(raw >> 1) if raw & 1 else (raw >> 1)
+            target[out:out + length] = source[src_rel:src_rel + length]
+            src_rel += length
+            out += length
+        else:  # TargetCopy: copy from what we have already written.
+            raw, pos = _bps_number(patch, pos)
+            tgt_rel += -(raw >> 1) if raw & 1 else (raw >> 1)
+            # Ranges may overlap and be read as they are written, so this one
+            # cannot be a slice assignment.
+            for _ in range(length):
+                target[out] = target[tgt_rel]
+                out += 1
+                tgt_rel += 1
+
+    if out != tgt_size:
+        raise Failure(f"base patch produced {out:,} bytes, expected {tgt_size:,}")
+    if zlib.crc32(target) != tgt_crc:
+        raise Failure("base patch produced the wrong output (bad checksum)")
+    return target
+
+
+# --------------------------------------------------------------------------
+# ROM assembly
+#
+# Offsets and byte values follow the randomizer's own patcher, by way of
+# pyz3r. Do not tidy them: they are addresses in someone else's assembly.
+# --------------------------------------------------------------------------
+
+HEART_SPEEDS = {"off": 0x00, "double": 0x10, "normal": 0x20, "half": 0x40, "quarter": 0x80}
+HEART_COLORS_V4 = {"red": 0x00, "blue": 0x01, "green": 0x02, "yellow": 0x03}
+HEART_COLORS_OLD = {"blue": (44, 13), "green": (60, 25), "yellow": (40, 9), "red": (36, 5)}
+MENU_SPEEDS = {"instant": 0xE8, "fast": 0x10, "normal": 0x08, "slow": 0x04}
+
+# The five items shown on the file select screen, which players compare before
+# a race to prove they are on the same seed. The ROM stores their indexes.
+CODE_OFFSET = 0x180215
+CODE_ITEMS = (
+    "Bow", "Boomerang", "Hookshot", "Bombs", "Mushroom", "Magic Powder",
+    "Ice Rod", "Pendant", "Bombos", "Ether", "Quake", "Lamp", "Hammer",
+    "Shovel", "Flute", "Bugnet", "Book", "Empty Bottle", "Green Potion",
+    "Somaria", "Cape", "Mirror", "Boots", "Gloves", "Flippers", "Moon Pearl",
+    "Shield", "Tunic", "Heart", "Map", "Compass", "Big Key",
+)
+
+
+class Rom:
+    def __init__(self, data: bytearray):
+        self.rom = data
+
+    @property
+    def version(self) -> int:
+        """Randomizer ROM format version. Zero on ROMs that predate it."""
+        ver = int.from_bytes(self.rom[0x7FE2:0x7FE4], "little")
+        return 0 if ver == 0xFFFF else ver
+
+    def write(self, offset: int, values) -> None:
+        self.rom[offset:offset + len(values)] = bytes(values)
+
+    def expand(self, megabytes: int) -> None:
+        size = int(megabytes) * 1024 * 1024
+        if len(self.rom) > size:
+            raise Failure(f"ROM is already larger than {megabytes}MB")
+        self.rom.extend(b"\x00" * (size - len(self.rom)))
+
+    def apply_seed_patch(self, patches: list) -> None:
+        """Apply the site's seed patch: a list of {offset: [bytes]} objects."""
+        for entry in patches:
+            for offset, values in entry.items():
+                self.write(int(offset), values)
+
+    def heart_speed(self, speed: str) -> None:
+        self.rom[0x180033] = HEART_SPEEDS[speed]
+
+    def heart_color(self, color: str) -> None:
+        if self.version >= 4:
+            self.rom[0x187020] = HEART_COLORS_V4[color]
+            return
+        byte, file_byte = HEART_COLORS_OLD[color]
+        for offset in range(0x6FA1E, 0x6FA31, 2):
+            self.rom[offset] = byte
+        self.rom[0x65561] = file_byte
+
+    def menu_speed(self, speed: str) -> None:
+        self.rom[0x180048] = MENU_SPEEDS[speed]
+        instant = speed == "instant"
+        self.rom[0x6DD9A] = 0x20 if instant else 0x11
+        self.rom[0x6DF2A] = 0x20 if instant else 0x12
+        self.rom[0x6E0E9] = 0x20 if instant else 0x12
+
+    def music(self, enabled: bool) -> None:
+        self.rom[0x18021A] = 0x00 if enabled else 0x01
+
+    def quickswap(self, enabled: bool) -> None:
+        self.rom[0x18004B] = 0x01 if enabled else 0x00
+
+    def reduce_flashing(self, enabled: bool) -> None:
+        self.rom[0x18017F] = 0x01 if enabled else 0x00
+
+    def msu1_resume(self, enabled: bool) -> None:
+        if not enabled:
+            self.rom[0x18021D] = 0x00
+            self.rom[0x18021E] = 0x00
+
+    def sprite(self, zspr: bytes) -> None:
+        """Replace Link's graphics and palette from a ZSPR file."""
+        if zspr[:4] != b"ZSPR":
+            raise Failure("sprite file is not in ZSPR format")
+        gfx = int.from_bytes(zspr[9:13], "little")
+        palette = int.from_bytes(zspr[15:19], "little")
+
+        # Newer ROMs show the sprite's author on the file select screen.
+        if self.rom[0x118000:0x118002] == b"\x02\x37" and self.rom[0x11801E:0x118020] == b"\x02\x37":
+            self._write_sprite_author(zspr, gfx)
+
+        self.write(0x80000, zspr[gfx:gfx + 28671])
+        self.write(0xDD308, zspr[palette:palette + 120])
+        self.write(0xDEDF5, zspr[palette + 120:palette + 124])
+
+    def _write_sprite_author(self, zspr: bytes, gfx_offset: int) -> None:
+        # Title and author are UTF-16, each terminated by a NUL pair. Skip both
+        # to reach the short ASCII author that the HUD font can render.
+        index, remaining = 0x1D, 2
+        while index < gfx_offset and remaining > 0:
+            if zspr[index] == 0 and zspr[index + 1] == 0:
+                remaining -= 1
+            index += 2
+
+        author = ""
+        while index < gfx_offset and zspr[index] != 0x00:
+            author += chr(zspr[index])
+            index += 1
+
+        charmap = SPRITE_FONT_V4 if self.version >= 4 else SPRITE_FONT_OLD
+        author = author[:28].center(28, " ").upper()
+        for i, char in enumerate(author):
+            upper, lower = charmap.get(char, (0x9F, 0x9F))
+            self.rom[0x118002 + i] = upper
+            self.rom[0x118020 + i] = lower
+
+    def file_select_code(self) -> list[str]:
+        return [CODE_ITEMS[b & 0x1F] for b in self.rom[CODE_OFFSET:CODE_OFFSET + 5]]
+
+    def fix_checksum(self) -> None:
+        """Rewrite the SNES header checksum. Must be the last step."""
+        total = sum(self.rom[:32731]) + sum(self.rom[32736:])
+        checksum = (total + 510) & 0xFFFF
+        inverse = checksum ^ 0xFFFF
+        self.write(0x7FDC, [inverse & 0xFF, inverse >> 8, checksum & 0xFF, checksum >> 8])
+
+
+def _sprite_font(specials: dict) -> dict:
+    font = {" ": (0x9F, 0x9F)}
+    for i, char in enumerate("0123456789"):
+        font[char] = (0x53 + i, 0x79 + i)
+    for i, char in enumerate("ABCDEFGHIJKLMNOPQRSTUVWXYZ"):
+        font[char] = (0x5D + i, 0x83 + i)
+    font.update(specials)
+    return font
+
+
+SPRITE_FONT_V4 = _sprite_font(
+    {"'": (0xD9, 0xEC), ".": (0xDC, 0xEF), "/": (0xDB, 0xEE), ":": (0xDD, 0xF0), "_": (0xDE, 0xF1)}
+)
+SPRITE_FONT_OLD = _sprite_font(
+    {"'": (0x77, 0x9D), ".": (0xA0, 0xC0), "/": (0xA2, 0xC2), ":": (0xA3, 0xC3), "_": (0xA6, 0xC6)}
+)
+
+
+# --------------------------------------------------------------------------
+# alttpr.com
+# --------------------------------------------------------------------------
+
+def _request(url: str, payload: dict | None = None, timeout: int = 300) -> bytes:
+    headers = {"User-Agent": USER_AGENT, "Accept": "application/json"}
+    data = None
+    if payload is not None:
+        data = json.dumps(payload).encode()
+        headers["Content-Type"] = "application/json"
+    request = urllib.request.Request(url, data=data, headers=headers)
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return response.read()
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", "replace").strip()
+        if body.startswith("<"):  # an HTML error page, not an API message
+            body = ""
+        raise Failure(f"alttpr.com returned HTTP {exc.code} for {url}\n{body}".rstrip()) from exc
+    except urllib.error.URLError as exc:
+        raise Failure(f"could not reach alttpr.com: {exc.reason}") from exc
+    except TimeoutError as exc:
+        raise Failure("alttpr.com timed out; generation can be slow, try again") from exc
+
+
+def get_json(url: str, payload: dict | None = None, timeout: int = 300) -> dict:
+    raw = _request(url, payload, timeout)
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise Failure(f"alttpr.com sent a non-JSON reply from {url}") from exc
+
+
+def fetch_settings() -> dict:
+    return get_json(f"{SITE}/randomizer/settings", timeout=60)
+
+
+def generate_seed(settings: dict) -> dict:
+    return get_json(f"{SITE}/api/randomizer", payload=settings)
+
+
+def fetch_seed(seed_hash: str) -> dict:
+    seed = get_json(f"{SITE}/hash/{seed_hash}", timeout=60)
+    seed.setdefault("hash", seed_hash)
+    return seed
+
+
+def fetch_base_patch() -> bytes:
+    """The BPS that turns a vanilla JP 1.0 ROM into the current randomizer base."""
+    info = get_json(f"{SITE}/base_rom/settings", timeout=60)
+    rom_hash = info["rom_hash"]
+    cached = CACHE_DIR / "base" / f"{rom_hash}.bps"
+    if cached.is_file():
+        return cached.read_bytes()
+
+    patch = _request(f"{SITE}{info['base_file']}", timeout=120)
+    cached.parent.mkdir(parents=True, exist_ok=True)
+    tmp = cached.with_suffix(".bps.part")
+    tmp.write_bytes(patch)
+    tmp.replace(cached)
+    return patch
+
+
+def resolve_sprite(name_or_path: str) -> bytes:
+    """A path to a .zspr, or the name of a sprite on alttpr.com."""
+    path = Path(name_or_path).expanduser()
+    if path.is_file():
+        return path.read_bytes()
+
+    catalogue = get_json(f"{SITE}/sprites", timeout=60)
+    wanted = name_or_path.casefold()
+    match = next((s for s in catalogue if s.get("name", "").casefold() == wanted), None)
+    if match is None:
+        close = sorted(s["name"] for s in catalogue if wanted in s.get("name", "").casefold())
+        hint = "\nDid you mean: " + ", ".join(close[:8]) if close else ""
+        raise Failure(f"no sprite named {name_or_path!r} and no such file{hint}")
+
+    cached = CACHE_DIR / "sprites" / f"{match['name'].replace('/', '_')}.{match['version']}.zspr"
+    if cached.is_file():
+        return cached.read_bytes()
+    data = _request(match["file"], timeout=120)
+    cached.parent.mkdir(parents=True, exist_ok=True)
+    cached.write_bytes(data)
+    return data
+
+
+# --------------------------------------------------------------------------
+# Wiring
+# --------------------------------------------------------------------------
+
+def load_config() -> dict:
+    if not CONFIG_FILE.is_file():
+        return {}
+    import tomllib
+    try:
+        with CONFIG_FILE.open("rb") as handle:
+            return tomllib.load(handle)
+    except tomllib.TOMLDecodeError as exc:
+        raise Failure(f"{CONFIG_FILE} is not valid TOML: {exc}") from exc
+
+
+def load_base_rom(path: Path) -> bytes:
+    if not path.is_file():
+        raise Failure(
+            f"no base ROM at {path}\n"
+            "Point --base-rom at your own unheadered Japanese 1.0 dump of\n"
+            "A Link to the Past, or set base_rom in " + str(CONFIG_FILE)
+        )
+    data = path.read_bytes()
+    if len(data) % 1024 == 512:
+        # A copier header. Strip it; the patch is built against the raw dump.
+        data = data[512:]
+    return data
+
+
+def build_settings(args, catalogue: dict) -> dict:
+    presets = catalogue.get("presets", {})
+    preset = presets.get(args.preset)
+    if not isinstance(preset, dict) or not preset:
+        available = ", ".join(sorted(k for k, v in presets.items() if isinstance(v, dict) and v))
+        raise Failure(f"unknown preset {args.preset!r}. Available: {available}")
+
+    settings = dict(preset)
+    settings.setdefault("spoilers", "off")
+    settings.setdefault("pseudoboots", False)
+    settings["allow_quickswap"] = not args.no_allow_quickswap
+
+    if args.spoilers:
+        settings["spoilers"] = args.spoilers
+    if args.race:
+        settings["tournament"] = True
+        settings["spoilers"] = "off"
+
+    # The settings document keys its enums by the plural of one field name.
+    enum_key = {"goal": "goals"}
+    for key, value in args.set or []:
+        allowed = catalogue.get(enum_key.get(key, key))
+        if isinstance(allowed, dict) and value not in allowed:
+            raise Failure(
+                f"{value!r} is not a valid {key}. Valid: " + ", ".join(allowed)
+            )
+        if not isinstance(allowed, dict) and key not in settings:
+            print(f"warning: {key!r} is not a setting alttpr.com advertises", file=sys.stderr)
+        settings[key] = value
+
+    return settings
+
+
+def parse_setting(text: str) -> tuple[str, str]:
+    if "=" not in text:
+        raise argparse.ArgumentTypeError(f"expected key=value, got {text!r}")
+    key, _, value = text.partition("=")
+    return key.strip(), value.strip()
+
+
+def build_rom(seed: dict, base_rom: bytes, cosmetics: dict) -> Rom:
+    rom = Rom(apply_bps(fetch_base_patch(), base_rom))
+    rom.expand(seed.get("size", 2))
+    rom.apply_seed_patch(seed["patch"])
+
+    rom.heart_speed(cosmetics["heart_speed"])
+    rom.heart_color(cosmetics["heart_color"])
+    rom.menu_speed(cosmetics["menu_speed"])
+    rom.music(cosmetics["music"])
+    rom.reduce_flashing(cosmetics["reduce_flashing"])
+    rom.msu1_resume(cosmetics["msu1_resume"])
+    if cosmetics["quickswap"] is not None:
+        rom.quickswap(cosmetics["quickswap"])
+    if cosmetics["sprite"]:
+        rom.sprite(resolve_sprite(cosmetics["sprite"]))
+
+    rom.fix_checksum()
+    return rom
+
+
+def resolve_cosmetics(args, config: dict) -> dict:
+    stored = config.get("cosmetics", {})
+    cosmetics = {
+        "heart_speed": args.heart_speed or stored.get("heart_speed", "half"),
+        "heart_color": args.heart_color or stored.get("heart_color", "red"),
+        "menu_speed": args.menu_speed or stored.get("menu_speed", "normal"),
+        "music": stored.get("music", True) and not args.no_music,
+        "reduce_flashing": args.reduce_flashing or stored.get("reduce_flashing", False),
+        "msu1_resume": stored.get("msu1_resume", True),
+        "sprite": args.sprite or stored.get("sprite"),
+        "quickswap": stored.get("quickswap"),
+    }
+    if args.quickswap:
+        cosmetics["quickswap"] = True
+    if args.no_quickswap:
+        cosmetics["quickswap"] = False
+
+    for field, valid in (
+        ("heart_speed", HEART_SPEEDS), ("heart_color", HEART_COLORS_V4), ("menu_speed", MENU_SPEEDS)
+    ):
+        if cosmetics[field] not in valid:
+            raise Failure(f"{cosmetics[field]!r} is not a valid {field}. Valid: " + ", ".join(valid))
+    return cosmetics
+
+
+def send_to_cart(send_file: Path, rom_path: Path) -> None:
+    binary = shutil.which(str(send_file)) or (str(send_file) if send_file.is_file() else None)
+    if binary is None:
+        raise Failure(
+            f"send_file not found at {send_file}\n"
+            "It ships with SNI. Set send_file in " + str(CONFIG_FILE) + " if it lives elsewhere."
+        )
+    try:
+        result = subprocess.run([binary, str(rom_path)], check=False)
+    except OSError as exc:
+        raise Failure(f"could not run {binary}: {exc}") from exc
+    if result.returncode != 0:
+        raise Failure(
+            f"send_file exited {result.returncode}. The ROM is still at {rom_path}.\n"
+            "Check that SNI is running (systemctl --user status sni) and the FXPak is plugged in."
+        )
+
+
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(
+        prog="alttpr-fxpak",
+        description="Roll an alttpr.com seed, build the ROM, and boot it on the FXPak Pro.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""examples:
+  alttpr-fxpak                              roll the default open preset and play it
+  alttpr-fxpak --preset beginner            roll a different preset
+  alttpr-fxpak --set world_state=inverted --set goal=pedestal
+  alttpr-fxpak --hash 9MQ9gBKAMD            build and play an existing seed
+  alttpr-fxpak --race --spoilers off        no spoiler log, marked as a race
+  alttpr-fxpak --list-presets               show what the site offers
+""",
+    )
+    parser.add_argument("--preset", default="default", help="settings preset (default: %(default)s)")
+    parser.add_argument("--set", type=parse_setting, action="append", metavar="KEY=VALUE",
+                        help="override one setting; repeatable")
+    parser.add_argument("--hash", metavar="HASH",
+                        help="build this existing seed instead of rolling a new one")
+    parser.add_argument("--spoilers", choices=["on", "off", "generate", "mystery"],
+                        help="spoiler policy for the generated seed")
+    parser.add_argument("--race", action="store_true", help="mark as a race seed and force spoilers off")
+    parser.add_argument("--list-presets", action="store_true", help="list presets and settings, then exit")
+
+    parser.add_argument("--base-rom", type=Path, help="vanilla JP 1.0 ROM")
+    parser.add_argument("--out-dir", type=Path, help=f"where to write ROMs (default: {DEFAULT_OUT_DIR})")
+    parser.add_argument("--send-file", type=Path, help=f"SNI's send_file (default: {DEFAULT_SEND_FILE})")
+    parser.add_argument("--no-send", action="store_true", help="build the ROM but do not touch the cart")
+    parser.add_argument("--save-spoiler", action="store_true", help="also write the full spoiler log")
+
+    cosmetic = parser.add_argument_group("cosmetics")
+    cosmetic.add_argument("--heart-speed", choices=sorted(HEART_SPEEDS))
+    cosmetic.add_argument("--heart-color", choices=sorted(HEART_COLORS_V4))
+    cosmetic.add_argument("--menu-speed", choices=sorted(MENU_SPEEDS))
+    cosmetic.add_argument("--no-music", action="store_true", help="silence the music, e.g. for MSU-1")
+    cosmetic.add_argument("--reduce-flashing", action="store_true")
+    cosmetic.add_argument("--sprite", metavar="NAME|FILE", help="sprite name on alttpr.com, or a .zspr path")
+    cosmetic.add_argument("--quickswap", action="store_true", help="force quickswap on")
+    cosmetic.add_argument("--no-quickswap", action="store_true", help="force quickswap off")
+    cosmetic.add_argument("--no-allow-quickswap", action="store_true",
+                          help="ask the generator to disallow quickswap")
+    return parser.parse_args(argv)
+
+
+def list_presets(catalogue: dict) -> None:
+    presets = {k: v for k, v in catalogue.get("presets", {}).items() if isinstance(v, dict) and v}
+    print("presets:")
+    for name in sorted(presets):
+        print(f"  {name}")
+    print("\nsettings for --set KEY=VALUE:")
+    for key in sorted(catalogue):
+        if key == "presets" or not isinstance(catalogue[key], dict):
+            continue
+        name = "goal" if key == "goals" else key
+        print(f"  {name} = {', '.join(catalogue[key])}")
+
+
+def main(argv=None) -> int:
+    args = parse_args(argv)
+    config = load_config()
+
+    if args.list_presets:
+        list_presets(fetch_settings())
+        return 0
+
+    configured_rom = args.base_rom or os.environ.get("ALTTPR_BASE_ROM") or config.get("base_rom")
+    if not configured_rom:
+        raise Failure(
+            "no base ROM configured. Pass --base-rom, set ALTTPR_BASE_ROM, or put\n"
+            f'  base_rom = "/path/to/alttp-jp10.sfc"\n'
+            f"in {CONFIG_FILE}"
+        )
+    base_rom_path = Path(configured_rom).expanduser()
+    out_dir = args.out_dir or Path(config.get("out_dir", DEFAULT_OUT_DIR)).expanduser()
+    send_file = args.send_file or Path(config.get("send_file", DEFAULT_SEND_FILE)).expanduser()
+
+    # Read the ROM before talking to the site, so a bad path fails immediately
+    # rather than after a minute of generation.
+    base_rom = load_base_rom(base_rom_path)
+    cosmetics = resolve_cosmetics(args, config)
+
+    if args.hash:
+        print(f"fetching seed {args.hash} ...", file=sys.stderr)
+        seed = fetch_seed(args.hash)
+    else:
+        settings = build_settings(args, fetch_settings())
+        print(f"rolling a {args.preset} seed ...", file=sys.stderr)
+        seed = generate_seed(settings)
+
+    seed_hash = seed.get("hash")
+    if not seed_hash or "patch" not in seed:
+        raise Failure("alttpr.com did not return a usable seed")
+
+    print("building ROM ...", file=sys.stderr)
+    rom = build_rom(seed, base_rom, cosmetics)
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    rom_path = out_dir / f"alttpr-{seed_hash}.sfc"
+    rom_path.write_bytes(rom.rom)
+
+    code = rom.file_select_code()
+    meta = {
+        "hash": seed_hash,
+        "permalink": f"{SITE}/h/{seed_hash}",
+        "file_select_code": code,
+        "logic": seed.get("logic"),
+        "generated": seed.get("generated"),
+        "spoiler": seed.get("spoiler") if args.save_spoiler else (seed.get("spoiler") or {}).get("meta"),
+    }
+    rom_path.with_suffix(".json").write_text(json.dumps(meta, indent=2) + "\n")
+
+    print(f"\n{rom_path}")
+    print(f"permalink: {meta['permalink']}")
+    print("file select code: " + ", ".join(code))
+
+    if args.no_send:
+        return 0
+    print("\nsending to the FXPak Pro ...", file=sys.stderr)
+    send_to_cart(send_file, rom_path)
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except Failure as error:
+        print(f"alttpr-fxpak: {error}", file=sys.stderr)
+        sys.exit(1)
+    except KeyboardInterrupt:
+        sys.exit(130)
