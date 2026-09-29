@@ -30,7 +30,8 @@ import zlib
 from pathlib import Path
 
 SITE = "https://alttpr.com"
-USER_AGENT = "alttpr-fxpak/1.0 (+https://github.com/alttpo/sni)"
+VERSION = "0.0.3"
+USER_AGENT = f"alttpr-fxpak/{VERSION} (+https://github.com/brandor5/alttpr-fxpak)"
 
 XDG_CONFIG = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
 XDG_CACHE = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache")
