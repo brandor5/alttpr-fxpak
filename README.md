@@ -84,7 +84,8 @@ SNI's `send_file` is found on your `PATH`, or failing that at
 the path it was started from, not next to the file a symlink points at, so
 through a symlink every ROM lands in the hidden `.sni` folder (see
 [On the cart](#on-the-cart)). To put it on your `PATH`, add SNI's folder to
-`PATH` instead.
+`PATH` instead. The symlink to `alttpr-fxpak` above is fine; this is only
+about `send_file`.
 
 ## Usage
 
