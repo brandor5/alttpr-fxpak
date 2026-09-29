@@ -59,6 +59,12 @@ SNI's `send_file` is found on your `PATH`, or failing that at
 `~/.local/opt/sni/current/send_file`. If yours is somewhere else, set
 `send_file` in the config or pass `--send-file`.
 
+**Don't use a symlink to `send_file`.** It looks for its own config next to
+the path it was started from, not next to the file a symlink points at, so
+through a symlink every ROM lands in the hidden `.sni` folder (see
+[On the cart](#on-the-cart)). To put it on your `PATH`, add SNI's folder to
+`PATH` instead.
+
 ## Usage
 
 ```sh
@@ -225,8 +231,9 @@ file browser for the cart, or you can take the SD card out and clean up on a
 computer.
 
 To choose the folder yourself, for example to put seeds in an MSU-1 pack's
-folder, create `snfm_config.yaml`. Put it **next to `send_file`**: that is
-the one place `send_file` checks on every platform. It also checks
+folder, create `snfm_config.yaml`. Put it **next to `send_file`**, the real
+file rather than a symlink to it: that is the one place `send_file` checks on
+every platform. It also checks
 `%LOCALAPPDATA%\snfm` on Windows. On Linux and macOS it checks
 `~/.config/snfm` only when `XDG_CONFIG_DIRS` is unset, and many Linux
 desktops set it, so a config there can be silently ignored. Each time it
