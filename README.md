@@ -53,9 +53,11 @@ mkdir -p ~/.config/alttpr-fxpak && cp config.example.toml ~/.config/alttpr-fxpak
 ```
 
 Then edit `~/.config/alttpr-fxpak/config.toml` and point `base_rom` at your
-vanilla Japanese 1.0 ROM. That is the only required setting, unless SNI's
-`send_file` lives somewhere other than `~/.local/opt/sni/current/`; in that
-case set `send_file` as well.
+vanilla Japanese 1.0 ROM. That is the only required setting.
+
+SNI's `send_file` is found on your `PATH`, or failing that at
+`~/.local/opt/sni/current/send_file`. If yours is somewhere else, set
+`send_file` in the config or pass `--send-file`.
 
 ## Usage
 
