@@ -19,6 +19,11 @@ It needs [SNI](https://github.com/alttpo/sni) running with the FXPak Pro
 connected. The last step runs SNI's `send_file`, which copies the ROM to the
 cart and boots it.
 
+This is an unofficial community tool, not affiliated with alttpr.com or SNI.
+It uses alttpr.com's public web endpoints, which are not a documented API, so
+a change on the site can break it until the tool is updated. Each run
+generates one seed, the same as generating one on the website.
+
 ## How it works
 
 alttpr.com never serves a playable ROM, because the randomizer is a patch on a
