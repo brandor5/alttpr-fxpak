@@ -12,6 +12,12 @@ and file-select author character maps, the SNES header checksum routine, and
 the file-select item code table. These were adapted from pyz3r's `rom.py` and
 `alttpr.py`.
 
+The customizer logic and ROM flags used for starting items
+(`CUSTOMIZER_FLAGS`) are the alttpr.com customizer's defaults as recorded in
+pyz3r's `customizer.py`. They are copied unchanged; the item pool, drop
+tables and prize packs sent alongside them come from alttpr.com at run time,
+not from pyz3r.
+
 Changes from pyz3r: the tables and routines were reorganised into this
 project's own Rom class and constants, the heart-color offsets were collapsed
 into a loop, and the sprite author character maps are generated from their

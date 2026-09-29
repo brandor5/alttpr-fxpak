@@ -366,6 +366,142 @@ def resolve_sprite(name_or_path: str) -> bytes:
 
 
 # --------------------------------------------------------------------------
+# Starting items
+#
+# The randomizer endpoint has no starting equipment. The customizer endpoint
+# does, but it takes a nested payload and the whole item pool rather than a
+# preset. The pool, drop tables and prize packs come from the site's own
+# customizer defaults. The site does not publish the logic and ROM flags
+# below, yet rejects a payload missing any of them, so they are the
+# customizer's defaults as recorded by pyz3r (Apache-2.0, Copyright 2018-2022
+# Thomas Prescott; see NOTICE).
+# --------------------------------------------------------------------------
+
+CUSTOMIZER_FLAGS = {
+    "item.Goal.Required": "",
+    "item.require.Lamp": False,
+    "item.value.BlueClock": "",
+    "item.value.GreenClock": "",
+    "item.value.RedClock": "",
+    "item.value.Rupoor": "",
+    "prize.crossWorld": True,
+    "prize.shuffleCrystals": True,
+    "prize.shufflePendants": True,
+    "region.bossNormalLocation": True,
+    "region.wildBigKeys": False,
+    "region.wildCompasses": False,
+    "region.wildKeys": False,
+    "region.wildMaps": False,
+    "rom.dungeonCount": "off",
+    "rom.freeItemMenu": False,
+    "rom.freeItemText": False,
+    "rom.mapOnPickup": False,
+    "rom.timerMode": "off",
+    "rom.timerStart": "",
+    "rom.rupeeBow": False,
+    "rom.genericKeys": False,
+    "spoil.BootsLocation": False,
+    "canBombJump": False,
+    "canBootsClip": False,
+    "canBunnyRevive": False,
+    "canBunnySurf": False,
+    "canDungeonRevive": False,
+    "canFakeFlipper": False,
+    "canMirrorClip": False,
+    "canMirrorWrap": False,
+    "canOneFrameClipOW": False,
+    "canOneFrameClipUW": False,
+    "canOWYBA": False,
+    "canSuperBunny": False,
+    "canSuperSpeed": False,
+    "canWaterFairyRevive": False,
+    "canWaterWalk": False,
+}
+
+# Starting health. The customizer expresses it as equipment, so a payload
+# without these would start Link with no hearts.
+STARTING_HEARTS = ["BossHeartContainer"] * 3
+
+
+def fetch_customizer_defaults() -> dict:
+    raw = get_json(f"{SITE}/customizer/settings", timeout=60)
+
+    def counts(entries: list) -> dict:
+        # Values carry a world suffix ("PegasusBoots:1"); the payload wants bare names.
+        return {e["value"].split(":")[0]: e["count"] for e in entries if "count" in e}
+
+    return {
+        "pool": counts(raw["items"]),
+        "drops": counts(raw["droppables"]),
+        "prize_packs": {p["name"]: ["auto_fill"] * p["slots"] for p in raw["prizepacks"]},
+    }
+
+
+def resolve_start_items(names: list[str], pool: dict) -> list[str]:
+    """Match item names case-insensitively against the site's item list."""
+    by_folded = {name.casefold(): name for name in pool}
+    items = []
+    for name in names:
+        match = by_folded.get(name.casefold())
+        if match is None:
+            close = sorted(n for n in pool if name.casefold() in n.casefold())
+            hint = "\nDid you mean: " + ", ".join(close[:8]) if close else "\nSee --list-items."
+            raise Failure(f"no item named {name!r}{hint}")
+        items.append(match)
+    return items
+
+
+def build_customizer_payload(settings: dict, start_items: list[str], defaults: dict) -> dict:
+    """Translate randomizer settings into a customizer request with starting items."""
+    if settings["entrance_shuffle"] != "none":
+        raise Failure(
+            "starting items cannot be combined with entrance shuffle: alttpr.com's\n"
+            "customizer returns entrance-shuffled seeds without any starting equipment.\n"
+            "Add --set entrance_shuffle=none, or leave out --start-with."
+        )
+
+    pool = dict(defaults["pool"])
+    for item in start_items:
+        # Take it out of the world as well, or the seed holds a second one. An
+        # item the pool does not normally contain is simply extra.
+        if pool.get(item, 0) > 0:
+            pool[item] -= 1
+
+    return {
+        "glitches": settings["glitches_required"],
+        "item_placement": settings["item_placement"],
+        "dungeon_items": settings["dungeon_items"],
+        "accessibility": settings["accessibility"],
+        "goal": settings["goal"],
+        "crystals": {"ganon": settings["ganon_open"], "tower": settings["tower_open"]},
+        "mode": settings["world_state"],
+        "entrances": "none",
+        "hints": settings["hints"],
+        "weapons": settings["weapons"],
+        "item": {"pool": settings["item_pool"], "functionality": settings["item_functionality"]},
+        "enemizer": {
+            "boss_shuffle": settings["boss_shuffle"],
+            "enemy_shuffle": settings["enemy_shuffle"],
+            "enemy_damage": settings["enemy_damage"],
+            "enemy_health": settings["enemy_health"],
+            "pot_shuffle": settings.get("pot_shuffle", "off"),
+        },
+        "spoilers": settings["spoilers"],
+        "tournament": settings.get("tournament", False),
+        "allow_quickswap": settings["allow_quickswap"],
+        "pseudoboots": settings.get("pseudoboots", False),
+        "l": {},
+        "eq": STARTING_HEARTS + start_items,
+        "drops": defaults["prize_packs"],
+        "custom": dict(CUSTOMIZER_FLAGS, item={"count": pool}, drop={"count": defaults["drops"]}),
+    }
+
+
+def generate_customizer_seed(payload: dict) -> dict:
+    return get_json(f"{SITE}/api/customizer", payload=payload)
+
+
+# --------------------------------------------------------------------------
 # Wiring
 # --------------------------------------------------------------------------
 
@@ -529,18 +665,23 @@ def parse_args(argv=None):
   alttpr-fxpak --hash 9MQ9gBKAMD            build and play an existing seed
   alttpr-fxpak --race --spoilers off        no spoiler log, marked as a race
   alttpr-fxpak --dry-run                    build the ROM without touching the cart
+  alttpr-fxpak --set item_placement=basic --set weapons=assured --start-with PegasusBoots
+                                            casual boots: start with the boots and a sword
   alttpr-fxpak --list-presets               show what the site offers
 """,
     )
     parser.add_argument("--preset", default="default", help="settings preset (default: %(default)s)")
     parser.add_argument("--set", type=parse_setting, action="append", metavar="KEY=VALUE",
                         help="override one setting; repeatable")
+    parser.add_argument("--start-with", action="append", metavar="ITEM",
+                        help="start with this item, e.g. PegasusBoots; repeatable")
     parser.add_argument("--hash", metavar="HASH",
                         help="build this existing seed instead of rolling a new one")
     parser.add_argument("--spoilers", choices=["on", "off", "generate", "mystery"],
                         help="spoiler policy for the generated seed")
     parser.add_argument("--race", action="store_true", help="mark as a race seed and force spoilers off")
     parser.add_argument("--list-presets", action="store_true", help="list presets and settings, then exit")
+    parser.add_argument("--list-items", action="store_true", help="list items for --start-with, then exit")
 
     parser.add_argument("--base-rom", type=Path, help="vanilla JP 1.0 ROM")
     parser.add_argument("--out-dir", type=Path, help=f"where to write ROMs (default: {DEFAULT_OUT_DIR})")
@@ -578,6 +719,12 @@ def list_presets(catalogue: dict) -> None:
         print(f"  {key} = true, false")
 
 
+def list_items(defaults: dict) -> None:
+    print("items for --start-with (case does not matter):")
+    for name in sorted(defaults["pool"], key=str.casefold):
+        print(f"  {name}")
+
+
 def main(argv=None) -> int:
     args = parse_args(argv)
     config = load_config()
@@ -585,6 +732,11 @@ def main(argv=None) -> int:
     if args.list_presets:
         list_presets(fetch_settings())
         return 0
+    if args.list_items:
+        list_items(fetch_customizer_defaults())
+        return 0
+    if args.hash and args.start_with:
+        raise Failure("--start-with shapes a new seed; it cannot change an existing --hash seed")
 
     configured_rom = args.base_rom or os.environ.get("ALTTPR_BASE_ROM") or config.get("base_rom")
     if not configured_rom:
@@ -607,8 +759,15 @@ def main(argv=None) -> int:
         seed = fetch_seed(args.hash)
     else:
         settings = build_settings(args, fetch_settings())
-        print(f"rolling a {args.preset} seed ...", file=sys.stderr)
-        seed = generate_seed(settings)
+        if args.start_with:
+            defaults = fetch_customizer_defaults()
+            items = resolve_start_items(args.start_with, defaults["pool"])
+            payload = build_customizer_payload(settings, items, defaults)
+            print(f"rolling a {args.preset} seed starting with {', '.join(items)} ...", file=sys.stderr)
+            seed = generate_customizer_seed(payload)
+        else:
+            print(f"rolling a {args.preset} seed ...", file=sys.stderr)
+            seed = generate_seed(settings)
 
     seed_hash = seed.get("hash")
     if not seed_hash or "patch" not in seed:
