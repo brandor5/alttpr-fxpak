@@ -56,6 +56,7 @@ vanilla Japanese 1.0 ROM. That is the only required setting.
 alttpr-fxpak                                    # default open preset, roll and play
 alttpr-fxpak --preset crosskeys
 alttpr-fxpak --set world_state=inverted --set goal=pedestal
+alttpr-fxpak --start-with PegasusBoots          # start with the boots
 alttpr-fxpak --hash 9MQ9gBKAMD                  # build someone else's seed
 alttpr-fxpak --race                             # no spoiler log, flagged as a race
 alttpr-fxpak --dry-run                          # build only, leave the cart alone
@@ -136,6 +137,36 @@ override the config for a single run.
 
 `--no-music` is the one to use with an MSU-1 soundtrack on the cart.
 
+### Starting items
+
+`--start-with ITEM` puts an item in your inventory from the start, and takes
+it out of the world so you don't find a second one. Repeat it for more than
+one item. A casual boots seed is:
+
+```sh
+alttpr-fxpak --set item_placement=basic --set weapons=assured --start-with PegasusBoots
+```
+
+That is the open preset with basic item placement, a sword from the start,
+and the Pegasus Boots from the start. `--preset beginner --start-with
+PegasusBoots` is the same idea in standard mode; `beginner` already assures
+the sword.
+
+Item names are alttpr.com's own, such as `PegasusBoots`, `Flippers`,
+`MoonPearl` and `Hookshot`. `--list-items` prints all of them, and matching
+ignores case.
+
+Starting items need a different generator on alttpr.com, the customizer, and
+that brings a few limits:
+
+- **No entrance shuffle.** The customizer returns entrance-shuffled seeds
+  without any starting equipment, so the combination is refused.
+- **New seeds only.** `--start-with` can't change a seed passed with
+  `--hash`. A starting-items seed rebuilds from its hash like any other,
+  items included.
+- **Three hearts to start**, as usual. The customizer counts starting health
+  as equipment, so the tool always includes it.
+
 ### Dry runs
 
 `--dry-run` stops after the ROM is written and prints the `send_file` command
@@ -196,7 +227,8 @@ Both are safe to delete; they refill on the next run.
 Apache License 2.0 — see [LICENSE](LICENSE).
 
 The ROM assembly data (cosmetic offsets, value tables, sprite injection, the
-header checksum, and the file select code table) is adapted from
+header checksum, and the file select code table) and the customizer flags
+used for starting items are adapted from
 [pyz3r](https://github.com/tcprescott/pyz3r) by Thomas Prescott, also
 Apache-2.0. [NOTICE](NOTICE) lists exactly what was taken and what changed.
 
