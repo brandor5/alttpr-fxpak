@@ -150,16 +150,20 @@ override the config for a single run.
 
 `--start-with ITEM` puts an item in your inventory from the start, and takes
 it out of the world so you don't find a second one. Repeat it for more than
-one item. A casual boots seed is:
+one item.
+
+A casual boots seed is the normal start of the game (standard mode) with
+basic item placement, and a sword and the Pegasus Boots from the start:
 
 ```sh
-alttpr-fxpak --set item_placement=basic --set weapons=assured --start-with PegasusBoots
+alttpr-fxpak --set world_state=standard --set item_placement=basic \
+             --set weapons=assured --start-with PegasusBoots
 ```
 
-That is the open preset with basic item placement, a sword from the start,
-and the Pegasus Boots from the start. `--preset beginner --start-with
-PegasusBoots` is the same idea in standard mode; `beginner` already assures
-the sword.
+The default preset is open, so `world_state=standard` is what gives the
+normal start. `--preset beginner --start-with PegasusBoots` comes close:
+`beginner` is already standard, basic and sword-assured, but it also requires
+100% locations instead of 100% inventory and turns hints off.
 
 Item names are alttpr.com's own, such as `PegasusBoots`, `Flippers`,
 `MoonPearl` and `Hookshot`. `--list-items` prints all of them, and matching

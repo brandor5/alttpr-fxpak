@@ -675,8 +675,9 @@ def parse_args(argv=None):
   alttpr-fxpak --hash 9MQ9gBKAMD            build and play an existing seed
   alttpr-fxpak --race --spoilers off        no spoiler log, marked as a race
   alttpr-fxpak --dry-run                    build the ROM without touching the cart
-  alttpr-fxpak --set item_placement=basic --set weapons=assured --start-with PegasusBoots
-                                            casual boots: start with the boots and a sword
+  alttpr-fxpak --set world_state=standard --set item_placement=basic \\
+               --set weapons=assured --start-with PegasusBoots
+                                            casual boots: normal start, boots and sword
   alttpr-fxpak --list-presets               show what the site offers
 """,
     )
