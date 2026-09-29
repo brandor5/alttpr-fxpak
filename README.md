@@ -8,7 +8,7 @@ $ alttpr-fxpak --preset beginner
 rolling a beginner seed ...
 building ROM ...
 
-/home/you/Games/alttpr/alttpr-JG8k3oAxyB.sfc
+/home/you/Games/alttpr/alttpr - JG8k3oAxyB.sfc
 permalink: https://alttpr.com/h/JG8k3oAxyB
 file select code: Ice Rod, Book, Moon Pearl, Lamp, Ice Rod
 
@@ -187,12 +187,12 @@ it would have run, so you can send it later or inspect the ROM first:
 
 ```console
 $ alttpr-fxpak --dry-run
-/home/you/Games/alttpr/alttpr-JG8k3oAxyB.sfc
+/home/you/Games/alttpr/alttpr - JG8k3oAxyB.sfc
 permalink: https://alttpr.com/h/JG8k3oAxyB
 file select code: Ice Rod, Book, Moon Pearl, Lamp, Ice Rod
 
 dry run: built but not sent. Send it yourself with:
-  /home/you/.local/opt/sni/current/send_file /home/you/Games/alttpr/alttpr-JG8k3oAxyB.sfc
+  /home/you/.local/opt/sni/current/send_file '/home/you/Games/alttpr/alttpr - JG8k3oAxyB.sfc'
 ```
 
 The seed is still rolled on alttpr.com and the ROM is still written — the cart
@@ -202,8 +202,11 @@ is the only thing left alone. `--no-send` is kept as an alias.
 
 Each run writes two files to `out_dir` (default `~/Games/alttpr`):
 
-- `alttpr-<hash>.sfc` — the ROM, also what gets sent to the cart
-- `alttpr-<hash>.json` — permalink, file select code, and the seed's settings
+- `alttpr - <hash>.sfc` — the ROM, also what gets sent to the cart
+- `alttpr - <hash>.json` — permalink, file select code, and the seed's settings
+
+Starting-items seeds are named `alttprcustom - <hash>` instead, after the
+alttpr.com customizer that generates them.
 
 The **file select code** is the five items shown on the in-game file select
 screen. Compare it with the other runners before a race to prove everyone is
@@ -212,11 +215,28 @@ on the same seed.
 With `--save-spoiler` the sidecar also gets the full spoiler log, assuming the
 seed was generated with spoilers enabled.
 
+## On the cart
+
+`send_file` decides where on the SD card each ROM goes, using its own config
+file, `snfm_config.yaml`. Without one, ROMs go into `.sni`, a folder the
+FXPak Pro's menu hides because its name starts with a dot. Every seed is a
+new file, so they pile up there over time. SNI's `manage_files` gives you a
+file browser for the cart, or you can take the SD card out and clean up on a
+computer.
+
+To choose the folder yourself, for example to put seeds in an MSU-1 pack's
+folder, start from the `snfm_config_example.yaml` that comes with SNI; its
+header lists where `snfm_config.yaml` can go. Its `alttpr` rule already
+matches this tool's ROM names. When a rule has several destinations,
+`send_file` asks which one to use, and a destination can rename the ROM to
+the file name an MSU-1 pack expects.
+
 ## Troubleshooting
 
 **`send_file exited 1`** — the ROM built fine and is still on disk; only the
 transfer failed. Check that SNI is running and the FXPak Pro is connected,
-then send the ROM again with `send_file <path to the .sfc>`.
+then send the ROM again with `send_file "<path to the .sfc>"`. Keep the
+quotes: the file name contains spaces.
 
 **`base ROM has CRC32 ... the patch expects ...`** — wrong ROM. It must be the
 Japanese 1.0 release, 1,048,576 bytes unheadered.
