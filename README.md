@@ -15,8 +15,9 @@ file select code: Ice Rod, Book, Moon Pearl, Lamp, Ice Rod
 sending to the FXPak Pro ...
 ```
 
-It leans on the SNI install from `../snes-ansible`: the last step is that
-setup's `send_file`, which copies the ROM to the cart and boots it.
+It needs [SNI](https://github.com/alttpo/sni) running with the FXPak Pro
+connected. The last step runs SNI's `send_file`, which copies the ROM to the
+cart and boots it.
 
 ## How it works
 
@@ -42,13 +43,19 @@ Pure standard library — no `pip install`, nothing to keep up to date.
 
 ## Setup
 
+You need Python 3.11 or newer, SNI, and your own ROM as described above.
+
+From a clone of this repository:
+
 ```sh
-mkdir -p ~/.local/bin && ln -s /work/alttpr-fxpak/alttpr-fxpak ~/.local/bin/
+mkdir -p ~/.local/bin && ln -s "$PWD/alttpr-fxpak" ~/.local/bin/
 mkdir -p ~/.config/alttpr-fxpak && cp config.example.toml ~/.config/alttpr-fxpak/config.toml
 ```
 
 Then edit `~/.config/alttpr-fxpak/config.toml` and point `base_rom` at your
-vanilla Japanese 1.0 ROM. That is the only required setting.
+vanilla Japanese 1.0 ROM. That is the only required setting, unless SNI's
+`send_file` lives somewhere other than `~/.local/opt/sni/current/`; in that
+case set `send_file` as well.
 
 ## Usage
 
@@ -202,12 +209,8 @@ seed was generated with spoilers enabled.
 ## Troubleshooting
 
 **`send_file exited 1`** — the ROM built fine and is still on disk; only the
-transfer failed. Check SNI and the cart:
-
-```sh
-systemctl --user status sni
-journalctl --user -u sni -n 30
-```
+transfer failed. Check that SNI is running and the FXPak Pro is connected,
+then send the ROM again with `send_file <path to the .sfc>`.
 
 **`base ROM has CRC32 ... the patch expects ...`** — wrong ROM. It must be the
 Japanese 1.0 release, 1,048,576 bytes unheadered.

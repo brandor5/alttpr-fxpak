@@ -7,7 +7,8 @@ base_rom = "~/roms/alttp-jp10.sfc"
 # Where built ROMs and their metadata land.
 # out_dir = "~/Games/alttpr"
 
-# SNI's send_file. The default matches the snes-ansible install.
+# SNI's send_file, which ships in the SNI release. Set this if SNI is
+# unpacked somewhere other than the default below.
 # send_file = "~/.local/opt/sni/current/send_file"
 
 [cosmetics]

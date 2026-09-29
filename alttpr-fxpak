@@ -649,7 +649,7 @@ def send_to_cart(send_file: Path, rom_path: Path) -> None:
     if result.returncode != 0:
         raise Failure(
             f"send_file exited {result.returncode}. The ROM is still at {rom_path}.\n"
-            "Check that SNI is running (systemctl --user status sni) and the FXPak is plugged in."
+            "Check that SNI is running and the FXPak Pro is connected."
         )
 
 
