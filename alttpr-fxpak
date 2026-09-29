@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Brandon Sawyers
+# Portions derived from pyz3r, Copyright 2018-2022 Thomas Prescott; see NOTICE.
 """Roll an ALTTP randomizer seed on alttpr.com, build the ROM, send it to the
 FXPak Pro through SNI.
 
@@ -132,7 +135,8 @@ def apply_bps(patch: bytes, source: bytes) -> bytearray:
 # ROM assembly
 #
 # Offsets and byte values follow the randomizer's own patcher, by way of
-# pyz3r. Do not tidy them: they are addresses in someone else's assembly.
+# pyz3r (Apache-2.0, Copyright 2018-2022 Thomas Prescott; see NOTICE). Do not
+# tidy them: they are addresses in someone else's assembly.
 # --------------------------------------------------------------------------
 
 HEART_SPEEDS = {"off": 0x00, "double": 0x10, "normal": 0x20, "half": 0x40, "quarter": 0x80}

@@ -137,3 +137,16 @@ load, and heavier presets take longer. The timeout is five minutes; retry.
 - `~/.cache/alttpr-fxpak/sprites/` — downloaded `.zspr` files
 
 Both are safe to delete; they refill on the next run.
+
+## License
+
+Apache License 2.0 — see [LICENSE](LICENSE).
+
+The ROM assembly data (cosmetic offsets, value tables, sprite injection, the
+header checksum, and the file select code table) is adapted from
+[pyz3r](https://github.com/tcprescott/pyz3r) by Thomas Prescott, also
+Apache-2.0. [NOTICE](NOTICE) lists exactly what was taken and what changed.
+
+The license covers this code only. It grants nothing to do with *A Link to
+the Past* itself: this tool never includes or downloads the game, and you must
+supply your own dump.

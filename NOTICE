@@ -1,0 +1,20 @@
+alttpr-fxpak
+Copyright 2026 Brandon Sawyers
+
+This product includes software derived from pyz3r
+(https://github.com/tcprescott/pyz3r), Copyright 2018-2022 Thomas Prescott,
+licensed under the Apache License, Version 2.0.
+
+The derived material is the ROM assembly data in `alttpr-fxpak`: the cosmetic
+byte offsets and their value tables (heart speed, heart color, menu speed,
+music, quickswap, reduce flashing, MSU-1 resume), the sprite injection offsets
+and file-select author character maps, the SNES header checksum routine, and
+the file-select item code table. These were adapted from pyz3r's `rom.py` and
+`alttpr.py`.
+
+Changes from pyz3r: the tables and routines were reorganised into this
+project's own Rom class and constants, the heart-color offsets were collapsed
+into a loop, and the sprite author character maps are generated from their
+alphanumeric ranges rather than written out entry by entry. The BPS patch
+applier in this project is an independent implementation written from the BPS
+format specification; pyz3r delegates that work to the separate `bps` package.
