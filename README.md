@@ -225,11 +225,33 @@ file browser for the cart, or you can take the SD card out and clean up on a
 computer.
 
 To choose the folder yourself, for example to put seeds in an MSU-1 pack's
-folder, start from the `snfm_config_example.yaml` that comes with SNI; its
-header lists where `snfm_config.yaml` can go. Its `alttpr` rule already
-matches this tool's ROM names. When a rule has several destinations,
-`send_file` asks which one to use, and a destination can rename the ROM to
-the file name an MSU-1 pack expects.
+folder, create `snfm_config.yaml`. Put it **next to `send_file`**: that is
+the one place `send_file` checks on every platform. It also checks
+`%LOCALAPPDATA%\snfm` on Windows. On Linux and macOS it checks
+`~/.config/snfm` only when `XDG_CONFIG_DIRS` is unset, and many Linux
+desktops set it, so a config there can be silently ignored. Each time it
+runs, `send_file` prints every place it looks, and prints `No config file
+found, using defaults.` if it finds nothing.
+
+A minimal config that sends every seed from this tool to one folder:
+
+```yaml
+rom_destination_rules:
+  alttpr:
+    name_patterns:
+      - "alttpr - *"
+      - "alttprcustom - *"
+    destinations:
+      - name: default
+        path: "/ROMs/_alttpr"
+```
+
+`send_file` creates the folder if it doesn't exist. The
+`snfm_config_example.yaml` that comes with SNI has a fuller `alttpr` rule
+that also matches this tool's ROM names. When a rule has several
+destinations, `send_file` asks in the terminal which one to use, and a
+destination's `rom_name` renames the ROM to the file name an MSU-1 pack
+expects.
 
 ## Troubleshooting
 
