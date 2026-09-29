@@ -65,6 +65,59 @@ alttpr-fxpak --list-presets                     # presets and every valid --set 
 `--list-presets` reads the live settings document, so it always matches what
 the site currently offers rather than a list baked in here.
 
+### Settings
+
+A seed starts from a **preset** (`--preset`, default `default`), and each
+`--set KEY=VALUE` then replaces one of the preset's settings. Presets and
+`--set` are meant to be combined:
+
+```sh
+# The open preset, but with gentler item placement and a sword to start
+alttpr-fxpak --set item_placement=basic --set weapons=assured
+
+# Beginner, but inverted and hunting for triforce pieces
+alttpr-fxpak --preset beginner --set world_state=inverted --set goal=triforce-hunt
+```
+
+`--set` is applied last, so it wins over the preset and over flags like
+`--spoilers` and `--race`. If the same key is set twice, the later one wins.
+Every value is checked against the site's own list before anything is sent,
+so a typo fails immediately with the valid choices.
+
+The presets on alttpr.com are `beginner`, `crosskeys`, `default` (open),
+`nightmare`, `quick` and `veetorp`. There is no "casual" preset; "casual"
+usually means `item_placement=basic`, as in the first example above.
+
+| Setting | Values | Controls |
+|---|---|---|
+| `glitches_required` | `none`, `overworld_glitches`, `hybrid_major_glitches`, `major_glitches`, `no_logic` | Which glitches the logic may require of you |
+| `item_placement` | `basic`, `advanced` | `basic` is the beginner-friendly placement; `advanced` is the usual race placement |
+| `dungeon_items` | `standard`, `mc`, `mcs`, `full` | What leaves its dungeon: nothing; maps and compasses; plus small keys; everything, big keys included |
+| `accessibility` | `items`, `locations`, `none` | 100% inventory, 100% locations, or only guaranteed beatable |
+| `goal` | `ganon`, `fast_ganon`, `dungeons`, `pedestal`, `triforce-hunt`, `ganonhunt`, `completionist` | What finishes the seed |
+| `tower_open` | `0`–`7`, `random` | Crystals needed to enter Ganon's Tower |
+| `ganon_open` | `0`–`7`, `random` | Crystals needed before Ganon can be beaten |
+| `world_state` | `standard`, `open`, `inverted`, `retro` | Starting state of the world |
+| `entrance_shuffle` | `none`, `simple`, `restricted`, `full`, `crossed`, `insanity` | How doors and caves are shuffled |
+| `boss_shuffle` | `none`, `simple`, `full`, `random` | Which boss is in which dungeon |
+| `enemy_shuffle` | `none`, `shuffled`, `random` | Which enemies appear where |
+| `enemy_damage` | `default`, `shuffled`, `random` | How hard enemies hit |
+| `enemy_health` | `default`, `easy`, `hard`, `expert` | How much damage enemies take |
+| `pot_shuffle` | `on`, `off` | Whether pot contents are shuffled |
+| `hints` | `on`, `off` | Telepathic tile and NPC hints |
+| `weapons` | `randomized`, `assured`, `vanilla`, `swordless` | `assured` starts you with a sword |
+| `item_pool` | `normal`, `hard`, `expert`, `crowd_control` | How generous the item pool is |
+| `item_functionality` | `normal`, `hard`, `expert` | How strong the items are |
+| `spoilers` | `on`, `off`, `generate`, `mystery` | Spoiler log policy; same as `--spoilers` |
+| `pseudoboots` | `true`, `false` | Dash from the start without the boots; the real boots are still in the world |
+| `allow_quickswap` | `true`, `false` | Whether the seed allows item quickswap |
+| `tournament` | `true`, `false` | Race seed; `--race` also sets this |
+
+This table reflects the site as of September 2026. `--list-presets` prints
+the current values, so trust it if the two ever disagree.
+
+True/false settings also accept `on`/`off`, `yes`/`no` and `1`/`0`.
+
 ### Cosmetics
 
 `--heart-speed`, `--heart-color`, `--menu-speed`, `--no-music`,
