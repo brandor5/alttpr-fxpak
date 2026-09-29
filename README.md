@@ -41,9 +41,25 @@ older dumping tools work too.
 
 Pure standard library — no `pip install`, nothing to keep up to date.
 
-## Setup
+## Requirements
 
-You need Python 3.11 or newer, SNI, and your own ROM as described above.
+- **An FXPak Pro or SD2SNES**, connected over USB and running
+  usb2snes-compatible firmware (SNI's own example is v1.10.3-usb).
+- **[SNI](https://github.com/alttpo/sni), running**, from a download that
+  includes `send_file`. As of SNI v0.0.103 the Windows x64, macOS and
+  Linux x64 downloads include it; the Linux ARM64 and `manylinux` downloads
+  do not.
+- **Python 3.11 or newer.** Only the standard library is used, so there is
+  nothing to `pip install`.
+- **Your own vanilla Japanese 1.0 ROM** of *A Link to the Past*: 1,048,576
+  bytes, or 1,049,088 with a copier header.
+- **Internet access to alttpr.com**, which generates every seed.
+
+So far this has only been tested on Linux. The script uses only portable
+Python, so Windows and macOS should work, but neither has been tried yet and
+the setup steps below are written for Linux and macOS shells.
+
+## Setup
 
 From a clone of this repository:
 
