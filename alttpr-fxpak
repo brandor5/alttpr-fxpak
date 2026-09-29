@@ -394,6 +394,23 @@ def load_base_rom(path: Path) -> bytes:
     return data
 
 
+# Settings the API takes as JSON booleans. --set values arrive as text, and the
+# site reads any non-empty string as true, so a literal "false" would switch
+# the option on. These are converted before sending.
+BOOLEAN_SETTINGS = {"pseudoboots", "allow_quickswap", "tournament"}
+TRUE_WORDS = {"true", "on", "yes", "1"}
+FALSE_WORDS = {"false", "off", "no", "0"}
+
+
+def parse_bool(key: str, value: str) -> bool:
+    word = value.casefold()
+    if word in TRUE_WORDS:
+        return True
+    if word in FALSE_WORDS:
+        return False
+    raise Failure(f"{value!r} is not a valid {key}. Use true or false.")
+
+
 def build_settings(args, catalogue: dict) -> dict:
     presets = catalogue.get("presets", {})
     preset = presets.get(args.preset)
@@ -415,6 +432,9 @@ def build_settings(args, catalogue: dict) -> dict:
     # The settings document keys its enums by the plural of one field name.
     enum_key = {"goal": "goals"}
     for key, value in args.set or []:
+        if key in BOOLEAN_SETTINGS or isinstance(settings.get(key), bool):
+            settings[key] = parse_bool(key, value)
+            continue
         allowed = catalogue.get(enum_key.get(key, key))
         if isinstance(allowed, dict) and value not in allowed:
             raise Failure(
@@ -554,6 +574,8 @@ def list_presets(catalogue: dict) -> None:
             continue
         name = "goal" if key == "goals" else key
         print(f"  {name} = {', '.join(catalogue[key])}")
+    for key in sorted(BOOLEAN_SETTINGS):
+        print(f"  {key} = true, false")
 
 
 def main(argv=None) -> int:
