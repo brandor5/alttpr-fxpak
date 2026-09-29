@@ -636,12 +636,21 @@ def resolve_cosmetics(args, config: dict) -> dict:
     return cosmetics
 
 
+def find_send_file(args, config: dict) -> Path:
+    """--send-file or the config file if given, else send_file on PATH, else the default."""
+    configured = args.send_file or config.get("send_file")
+    if configured:
+        return Path(configured).expanduser()
+    on_path = shutil.which("send_file")
+    return Path(on_path) if on_path else DEFAULT_SEND_FILE
+
+
 def send_to_cart(send_file: Path, rom_path: Path) -> None:
     binary = shutil.which(str(send_file)) or (str(send_file) if send_file.is_file() else None)
     if binary is None:
         raise Failure(
             f"send_file not found at {send_file}\n"
-            "It ships with SNI. Set send_file in " + str(CONFIG_FILE) + " if it lives elsewhere."
+            "It ships with SNI. Put it on your PATH, or set send_file in " + str(CONFIG_FILE) + "."
         )
     try:
         result = subprocess.run([binary, str(rom_path)], check=False)
@@ -686,7 +695,8 @@ def parse_args(argv=None):
 
     parser.add_argument("--base-rom", type=Path, help="vanilla JP 1.0 ROM")
     parser.add_argument("--out-dir", type=Path, help=f"where to write ROMs (default: {DEFAULT_OUT_DIR})")
-    parser.add_argument("--send-file", type=Path, help=f"SNI's send_file (default: {DEFAULT_SEND_FILE})")
+    parser.add_argument("--send-file", type=Path,
+                        help=f"SNI's send_file (default: send_file on PATH, else {DEFAULT_SEND_FILE})")
     parser.add_argument("--dry-run", "--no-send", action="store_true", dest="dry_run",
                         help="build the ROM and stop, leaving the cart alone")
     parser.add_argument("--save-spoiler", action="store_true", help="also write the full spoiler log")
@@ -748,7 +758,7 @@ def main(argv=None) -> int:
         )
     base_rom_path = Path(configured_rom).expanduser()
     out_dir = args.out_dir or Path(config.get("out_dir", DEFAULT_OUT_DIR)).expanduser()
-    send_file = args.send_file or Path(config.get("send_file", DEFAULT_SEND_FILE)).expanduser()
+    send_file = find_send_file(args, config)
 
     # Read the ROM before talking to the site, so a bad path fails immediately
     # rather than after a minute of generation.

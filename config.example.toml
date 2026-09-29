@@ -7,8 +7,9 @@ base_rom = "~/roms/alttp-jp10.sfc"
 # Where built ROMs and their metadata land.
 # out_dir = "~/Games/alttpr"
 
-# SNI's send_file, which ships in the SNI release. Set this if SNI is
-# unpacked somewhere other than the default below.
+# SNI's send_file, which ships in the SNI release. Without this setting it
+# is looked up on your PATH, then at the path below. Set it to use a
+# particular copy or one kept anywhere else.
 # send_file = "~/.local/opt/sni/current/send_file"
 
 [cosmetics]
