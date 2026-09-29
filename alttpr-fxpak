@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shlex
 import shutil
 import struct
 import subprocess
@@ -645,6 +646,23 @@ def find_send_file(args, config: dict) -> Path:
     return Path(on_path) if on_path else DEFAULT_SEND_FILE
 
 
+def rom_filename(seed: dict) -> str:
+    """Name the ROM so the alttpr rule in SNI's example send_file config matches.
+
+    That rule looks for "alttpr - *" and "alttprcustom - *", and is how
+    players route seeds into MSU-1 pack folders. Customizer seeds, including
+    ones fetched back with --hash, are marked by difficulty "custom".
+    """
+    meta = (seed.get("spoiler") or {}).get("meta") or {}
+    prefix = "alttprcustom" if meta.get("difficulty") == "custom" else "alttpr"
+    return f"{prefix} - {seed['hash']}.sfc"
+
+
+def shell_command(argv: list[str]) -> str:
+    """Render a command the user can paste into their shell, spaces and all."""
+    return subprocess.list2cmdline(argv) if os.name == "nt" else shlex.join(argv)
+
+
 def send_to_cart(send_file: Path, rom_path: Path) -> None:
     binary = shutil.which(str(send_file)) or (str(send_file) if send_file.is_file() else None)
     if binary is None:
@@ -789,7 +807,7 @@ def main(argv=None) -> int:
     rom = build_rom(seed, base_rom, cosmetics)
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    rom_path = out_dir / f"alttpr-{seed_hash}.sfc"
+    rom_path = out_dir / rom_filename(seed)
     rom_path.write_bytes(rom.rom)
 
     code = rom.file_select_code()
@@ -809,7 +827,7 @@ def main(argv=None) -> int:
 
     if args.dry_run:
         print("\ndry run: built but not sent. Send it yourself with:", file=sys.stderr)
-        print(f"  {send_file} {rom_path}", file=sys.stderr)
+        print("  " + shell_command([str(send_file), str(rom_path)]), file=sys.stderr)
         return 0
     print("\nsending to the FXPak Pro ...", file=sys.stderr)
     send_to_cart(send_file, rom_path)
